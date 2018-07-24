@@ -12,6 +12,7 @@ set(config_module_list
 	drivers/gps
 	drivers/linux_gpio
 	drivers/pwm_out_sim
+	drivers/ranger_hub
 	drivers/vmount
 
 	modules/sensors
