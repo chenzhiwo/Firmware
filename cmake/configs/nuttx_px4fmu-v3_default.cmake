@@ -159,4 +159,7 @@ set(config_module_list
 
 	# Hardware test
 	examples/hwtest
+
+	# Ranger hub
+	drivers/ranger_hub
 )

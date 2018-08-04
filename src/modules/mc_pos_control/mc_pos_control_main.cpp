@@ -110,6 +110,7 @@ private:
 	int		_control_mode_sub{-1};		/**< vehicle control mode subscription */
 	int		_params_sub{-1};			/**< notification of parameter updates */
 	int		_local_pos_sub{-1};			/**< vehicle local position */
+	int		_safety_local_pos_sp_sub{-1};			/**< vehicle safety local position setpoint */
 	int		_home_pos_sub{-1}; 			/**< home position */
 
 	float _takeoff_speed = -1.f; /**< For flighttask interface used only. It can be thrust or velocity setpoints */
@@ -120,6 +121,7 @@ private:
 	vehicle_control_mode_s			_control_mode{};		/**< vehicle control mode */
 	vehicle_local_position_s			_local_pos{};		/**< vehicle local position */
 	vehicle_local_position_setpoint_s	_local_pos_sp{};		/**< vehicle local position setpoint */
+	vehicle_local_position_setpoint_s	_safety_local_pos_sp{};		/**< vehicle local position setpoint */
 	home_position_s				_home_pos{}; 				/**< home position */
 
 	DEFINE_PARAMETERS(
@@ -365,6 +367,12 @@ MulticopterPositionControl::poll_subscriptions()
 	if (updated) {
 		orb_copy(ORB_ID(home_position), _home_pos_sub, &_home_pos);
 	}
+
+	orb_check(_safety_local_pos_sp_sub, &updated);
+
+	if (updated) {
+		orb_copy(ORB_ID(vehicle_safety_local_position_setpoint), _safety_local_pos_sp_sub, &_safety_local_pos_sp);
+	}
 }
 
 int
@@ -472,12 +480,14 @@ MulticopterPositionControl::set_vehicle_states(const float &vel_sp_z)
 void
 MulticopterPositionControl::task_main()
 {
+	bool is_safety_enable = false;
 	// do subscriptions
 	_vehicle_status_sub = orb_subscribe(ORB_ID(vehicle_status));
 	_vehicle_land_detected_sub = orb_subscribe(ORB_ID(vehicle_land_detected));
 	_control_mode_sub = orb_subscribe(ORB_ID(vehicle_control_mode));
 	_params_sub = orb_subscribe(ORB_ID(parameter_update));
 	_local_pos_sub = orb_subscribe(ORB_ID(vehicle_local_position));
+	_safety_local_pos_sp_sub = orb_subscribe(ORB_ID(vehicle_safety_local_position_setpoint));
 	_home_pos_sub = orb_subscribe(ORB_ID(home_position));
 
 	parameters_update(true);
@@ -492,6 +502,8 @@ MulticopterPositionControl::task_main()
 
 	// Let's be safe and have the landing gear down by default
 	_att_sp.landing_gear = vehicle_attitude_setpoint_s::LANDING_GEAR_DOWN;
+
+	_safety_local_pos_sp.timestamp = 0;
 
 	// wakeup source
 	px4_pollfd_struct_t fds[1];
@@ -603,6 +615,34 @@ MulticopterPositionControl::task_main()
 			// limit altitude only if local position is valid
 			if (PX4_ISFINITE(_states.position(2))) {
 				limit_altitude(setpoint);
+			}
+
+#define SAFETY_POSITION_TIMEOUT 500000
+
+			// Apply safety position setpoint.
+            if((_safety_local_pos_sp.timestamp + SAFETY_POSITION_TIMEOUT) >= hrt_absolute_time())
+			{
+                PX4_INFO("SAFETY");
+				is_safety_enable = true;
+			    setpoint = _safety_local_pos_sp;
+			} else {
+				if (is_safety_enable) {
+					is_safety_enable = false;
+                    // Save current flight task for restore later.
+                    int flight_task = _flight_tasks.getActiveTask();
+
+                    // Reset current flight task.
+					int error = _flight_tasks.switchTask(FlightTaskIndex::None);
+					if (error != 0) {
+						PX4_WARN("Reset flight task failed with error: %s", _flight_tasks.errorToString(error));
+					}
+
+					// Restore flight task.
+					error = _flight_tasks.switchTask(FlightTaskIndex(flight_task));
+					if (error != 0) {
+						PX4_WARN("Restore flight task failed with error: %s", _flight_tasks.errorToString(error));
+					}
+				}
 			}
 
 			// Update states, setpoints and constraints.
