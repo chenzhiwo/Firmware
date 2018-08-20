@@ -37,24 +37,19 @@
 
 #define ARR_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
-#define START_SIGN 0x55
-
+// Byte alignment begin.
 #pragma pack(push)
 #pragma pack(1)
 
-typedef struct ReportHeader{
-    uint8_t start;
-    uint8_t type;
-    uint8_t size;
-    uint8_t checksum;
-} ReportHeader;
-
-typedef struct ReportBuffer{
-    ReportHeader header;
-    uint16_t value[16];
-} ReportBuffer;
+typedef struct Report {
+    char T;
+    char H;
+    uint16_t distance[8];
+    uint8_t crc;
+} Report;
 
 #pragma pack(pop)
+// Byte alignment end.
 
 enum RangerDirections{
     RANGER_FRONT = 0,
