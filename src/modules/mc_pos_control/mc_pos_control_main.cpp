@@ -555,6 +555,9 @@ MulticopterPositionControl::task_main()
 	fds[0].fd = _local_pos_sub;
 	fds[0].events = POLLIN;
 
+	// For avoidance
+	bool flight_task_should_reset = false;
+
 	while (!_task_should_exit) {
 		// wait for up to 20ms for data
 		int pret = px4_poll(&fds[0], (sizeof(fds) / sizeof(fds[0])), 20);
@@ -672,9 +675,18 @@ MulticopterPositionControl::task_main()
 			_control.updateState(_states);
 
 			if (!use_obstacle_avoidance()) {
+				// Restore from avoidance.
+			    if(flight_task_should_reset)
+				{
+			    	flight_task_should_reset = false;
+			    	int task = _flight_tasks.getActiveTask();
+			        _flight_tasks.switchTask(FlightTaskIndex::None);
+					_flight_tasks.switchTask(task);
+					continue;
+				}
 				_control.updateSetpoint(setpoint);
-
 			} else {
+				flight_task_should_reset = true;
 				execute_avoidance_waypoint();
 			}
 
