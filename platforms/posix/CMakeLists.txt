@@ -5,9 +5,21 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 get_property(module_libraries GLOBAL PROPERTY PX4_MODULE_LIBRARIES)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+set(PX4_BASH_PREFIX "px4-")
+
+add_definitions("-DPX4_BASH_PREFIX=\"${PX4_BASH_PREFIX}\"")
+
 px4_posix_generate_builtin_commands(
 	OUT apps
 	MODULE_LIST ${module_libraries})
+
+px4_posix_generate_alias(
+	OUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/px4-alias.sh
+	MODULE_LIST ${module_libraries}
+	PREFIX ${PX4_BASH_PREFIX}
+)
 
 if (("${BOARD}" STREQUAL "eagle") OR ("${BOARD}" STREQUAL "excelsior"))
 	include(fastrpc)
@@ -34,7 +46,7 @@ if (("${BOARD}" STREQUAL "eagle") OR ("${BOARD}" STREQUAL "excelsior"))
 		)
 
 	add_custom_target(upload
-		COMMAND ${PX4_SOURCE_DIR}/Tools/adb_upload.sh $<TARGET_FILE:px4> ${PX4_SOURCE_DIR}/posix-configs/eagle/flight/mainapp.config /home/linaro
+		COMMAND ${PX4_SOURCE_DIR}/Tools/adb_upload.sh ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} ${PX4_SOURCE_DIR}/posix-configs/eagle/flight/mainapp.config /home/linaro
 		DEPENDS px4
 		COMMENT "uploading px4"
 		USES_TERMINAL
@@ -63,9 +75,19 @@ endif()
 
 if ("${BOARD}" STREQUAL "rpi")
 	add_custom_target(upload
-		COMMAND scp -r $<TARGET_FILE:px4> ${PX4_SOURCE_DIR}/posix-configs/rpi/*.config ${PX4_SOURCE_DIR}/ROMFS pi@"ENV{AUTOPILOT_HOST}":/home/pi
+		COMMAND rsync -arh --progress ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} ${PX4_SOURCE_DIR}/posix-configs/rpi/*.config ${PX4_SOURCE_DIR}/ROMFS pi@"$ENV{AUTOPILOT_HOST}":/home/pi
 		DEPENDS px4
 		COMMENT "uploading px4"
+		USES_TERMINAL
+		)
+
+elseif ("${BOARD}" STREQUAL "bbblue")
+	target_link_libraries(px4 PRIVATE robotcontrol)
+
+	add_custom_target(upload
+		COMMAND rsync -arh --progress ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} ${PX4_SOURCE_DIR}/posix-configs/bbblue/*.config ${PX4_SOURCE_DIR}/ROMFS debian@BBBluePX4:/home/debian/px4
+		DEPENDS px4
+		COMMENT "uploading px4 and data files"
 		USES_TERMINAL
 		)
 
@@ -88,17 +110,17 @@ elseif ("${BOARD}" STREQUAL "sitl")
 
 endif()
 
+# Module Symlinks
+px4_posix_generate_symlinks(
+	MODULE_LIST ${module_libraries}
+	PREFIX ${PX4_BASH_PREFIX}
+	TARGET px4
+)
+
+
 #=============================================================================
 # install
 #
-
-# px4 app
-install(
-	TARGETS
-		px4
-	DESTINATION
-		${PROJECT_NAME}
-	)
 
 # px4 dirs
 install(
@@ -108,6 +130,7 @@ install(
 		${PROJECT_SOURCE_DIR}/posix-configs
 		${PROJECT_SOURCE_DIR}/ROMFS
 		${PROJECT_SOURCE_DIR}/test
+		${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
 	DESTINATION
 		${PROJECT_NAME}
 	USE_SOURCE_PERMISSIONS
@@ -168,3 +191,5 @@ install(
 	DESTINATION
 		${PROJECT_NAME}/Tools/sitl_gazebo
 	)
+
+

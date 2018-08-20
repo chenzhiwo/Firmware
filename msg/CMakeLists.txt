@@ -52,6 +52,7 @@ set(msg_files
 	distance_sensor.msg
 	ekf2_innovations.msg
 	ekf2_timestamps.msg
+	ekf_gps_drift.msg
 	ekf_gps_position.msg
 	esc_report.msg
 	esc_status.msg
@@ -85,6 +86,8 @@ set(msg_files
 	power_button_state.msg
 	pwm_input.msg
 	qshell_req.msg
+	qshell_retval.msg
+	radio_status.msg
 	rate_ctrl_status.msg
 	rc_channels.msg
 	rc_parameter_map.msg
@@ -119,6 +122,7 @@ set(msg_files
 	vehicle_attitude_setpoint.msg
 	vehicle_command.msg
 	vehicle_command_ack.msg
+	vehicle_constraints.msg
 	vehicle_control_mode.msg
 	vehicle_global_position.msg
 	vehicle_gps_position.msg
@@ -133,7 +137,6 @@ set(msg_files
 	vehicle_trajectory_waypoint.msg
 	vtol_vehicle_status.msg
 	wind_estimate.msg
-	vehicle_constraints.msg
 	)
 
 if(NOT EXTERNAL_MODULES_LOCATION STREQUAL "")

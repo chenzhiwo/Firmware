@@ -57,6 +57,7 @@
 #include <uORB/topics/ekf2_timestamps.h>
 #include <uORB/topics/ekf_gps_position.h>
 #include <uORB/topics/estimator_status.h>
+#include <uORB/topics/ekf_gps_drift.h>
 #include <uORB/topics/landing_target_pose.h>
 #include <uORB/topics/optical_flow.h>
 #include <uORB/topics/parameter_update.h>
@@ -121,7 +122,7 @@ private:
 	void update_mag_bias(Param &mag_bias_param, int axis_index);
 	template<typename Param>
 	bool update_mag_decl(Param &mag_decl_param);
-	bool publish_attitude(const sensor_combined_s &sensors);
+	bool publish_attitude(const sensor_combined_s &sensors, const hrt_abstime &now);
 	bool publish_wind_estimate(const hrt_abstime &timestamp);
 
 	const Vector3f get_vel_body_wind();
@@ -252,6 +253,7 @@ private:
 	orb_advert_t _att_pub{nullptr};
 	orb_advert_t _wind_pub{nullptr};
 	orb_advert_t _estimator_status_pub{nullptr};
+	orb_advert_t _ekf_gps_drift_pub{nullptr};
 	orb_advert_t _estimator_innovations_pub{nullptr};
 	orb_advert_t _ekf2_timestamps_pub{nullptr};
 	orb_advert_t _sensor_bias_pub{nullptr};
@@ -469,7 +471,12 @@ private:
 		(ParamInt<px4::params::EKF2_GPS_MASK>)
 		_gps_blend_mask,	///< mask defining when GPS accuracy metrics are used to calculate the blend ratio
 		(ParamFloat<px4::params::EKF2_GPS_TAU>)
-		_gps_blend_tau		///< time constant controlling how rapidly the offset used to bring GPS solutions together is allowed to change (sec)
+		_gps_blend_tau,		///< time constant controlling how rapidly the offset used to bring GPS solutions together is allowed to change (sec)
+
+		// Test used to determine if the vehicle is static or moving
+		(ParamExtFloat<px4::params::EKF2_MOVE_TEST>)
+		_is_moving_scaler	///< scaling applied to IMU data thresholds used to determine if the vehicle is static or moving.
+
 	)
 
 };
@@ -570,7 +577,8 @@ Ekf2::Ekf2():
 	_acc_bias_learn_tc(_params->acc_bias_learn_tc),
 	_drag_noise(_params->drag_noise),
 	_bcoef_x(_params->bcoef_x),
-	_bcoef_y(_params->bcoef_y)
+	_bcoef_y(_params->bcoef_y),
+	_is_moving_scaler(_params->is_moving_scaler)
 {
 	_airdata_sub = orb_subscribe(ORB_ID(vehicle_air_data));
 	_airspeed_sub = orb_subscribe(ORB_ID(airspeed));
@@ -798,7 +806,7 @@ void Ekf2::run()
 		_ekf.setIMUData(now, sensors.gyro_integral_dt, sensors.accelerometer_integral_dt, gyro_integral, accel_integral);
 
 		// publish attitude immediately (uses quaternion from output predictor)
-		publish_attitude(sensors);
+		publish_attitude(sensors, now);
 
 		// read mag data
 		bool magnetometer_updated = false;
@@ -1414,6 +1422,7 @@ void Ekf2::run()
 			estimator_status_s status;
 			status.timestamp = now;
 			_ekf.get_state_delayed(status.states);
+			status.n_states = 24;
 			_ekf.get_covariances(status.covariances);
 			_ekf.get_gps_check_status(&status.gps_check_fail_flags);
 			status.control_mode_flags = control_status.value;
@@ -1428,7 +1437,6 @@ void Ekf2::run()
 			_ekf.get_ekf_soln_status(&status.solution_status_flags);
 			_ekf.get_imu_vibe_metrics(status.vibe);
 			status.time_slip = _last_time_slip_us / 1e6f;
-			status.nan_flags = 0.0f; // unused
 			status.health_flags = 0.0f; // unused
 			status.timeout_flags = 0.0f; // unused
 			status.pre_flt_fail = _preflt_fail;
@@ -1438,6 +1446,26 @@ void Ekf2::run()
 
 			} else {
 				orb_publish(ORB_ID(estimator_status), _estimator_status_pub, &status);
+			}
+
+			// publish GPS drift data only when updated to minimise overhead
+			float gps_drift[3];
+			bool blocked;
+
+			if (_ekf.get_gps_drift_metrics(gps_drift, &blocked)) {
+				ekf_gps_drift_s drift_data;
+				drift_data.timestamp = now;
+				drift_data.hpos_drift_rate = gps_drift[0];
+				drift_data.vpos_drift_rate = gps_drift[1];
+				drift_data.hspd = gps_drift[2];
+				drift_data.blocked = blocked;
+
+				if (_ekf_gps_drift_pub == nullptr) {
+					_ekf_gps_drift_pub = orb_advertise(ORB_ID(ekf_gps_drift), &drift_data);
+
+				} else {
+					orb_publish(ORB_ID(ekf_gps_drift), _ekf_gps_drift_pub, &drift_data);
+				}
 			}
 
 			{
@@ -1643,12 +1671,12 @@ int Ekf2::getRangeSubIndex(const int *subs)
 	return -1;
 }
 
-bool Ekf2::publish_attitude(const sensor_combined_s &sensors)
+bool Ekf2::publish_attitude(const sensor_combined_s &sensors, const hrt_abstime &now)
 {
 	if (_ekf.attitude_valid()) {
 		// generate vehicle attitude quaternion data
 		vehicle_attitude_s att;
-		att.timestamp = hrt_absolute_time();
+		att.timestamp = now;
 
 		const Quatf q{_ekf.calculate_quaternion()};
 		q.copyTo(att.q);

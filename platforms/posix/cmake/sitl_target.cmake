@@ -3,7 +3,7 @@ file(MAKE_DIRECTORY ${SITL_WORKING_DIR})
 
 # add a symlink to the logs dir to make it easier to find them
 add_custom_command(OUTPUT ${PX4_BINARY_DIR}/logs
-		COMMAND ${CMAKE_COMMAND} -E create_symlink ${SITL_WORKING_DIR}/rootfs/fs/microsd/log logs
+		COMMAND ${CMAKE_COMMAND} -E create_symlink ${SITL_WORKING_DIR}/rootfs/log logs
 		WORKING_DIRECTORY ${PX4_BINARY_DIR})
 add_custom_target(logs_symlink DEPENDS ${PX4_BINARY_DIR}/logs)
 
@@ -45,9 +45,9 @@ ExternalProject_Add_Step(sitl_gazebo forceconfigure
 	)
 
 # create targets for each viewer/model/debugger combination
-set(viewers none jmavsim gazebo replay)
+set(viewers none jmavsim gazebo)
 set(debuggers none ide gdb lldb ddd valgrind callgrind)
-set(models none iris iris_opt_flow iris_vision iris_rplidar iris_irlock standard_vtol plane solo tailsitter typhoon_h480 rover hippocampus tiltrotor)
+set(models none shell iris iris_opt_flow iris_vision iris_rplidar iris_irlock standard_vtol plane solo tailsitter typhoon_h480 rover hippocampus tiltrotor)
 set(all_posix_vmd_make_targets)
 foreach(viewer ${viewers})
 	foreach(debugger ${debuggers})

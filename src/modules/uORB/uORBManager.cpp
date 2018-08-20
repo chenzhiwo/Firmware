@@ -35,15 +35,14 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 #include <fcntl.h>
-#include <errno.h>
 
 #include <px4_config.h>
 #include <px4_posix.h>
 #include <px4_tasks.h>
 
+#include "uORBDeviceNode.hpp"
 #include "uORBUtils.hpp"
 #include "uORBManager.hpp"
-#include "uORBDevices.hpp"
 
 
 //=========================  Static initializations =================
@@ -65,7 +64,7 @@ bool uORB::Manager::initialize()
 uORB::Manager::Manager()
 {
 #ifdef ORB_USE_PUBLISHER_RULES
-	const char *file_name = "./rootfs/orb_publisher.rules";
+	const char *file_name = PX4_STORAGEDIR"/orb_publisher.rules";
 	int ret = readPublisherRulesFromFile(file_name, _publisher_rule);
 
 	if (ret == PX4_OK) {

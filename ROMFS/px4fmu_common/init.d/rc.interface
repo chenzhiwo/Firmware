@@ -11,22 +11,20 @@
 
 set MIXER_AUX_FILE none
 set OUTPUT_AUX_DEV /dev/pwm_output1
-set SDCARD_MIXERS_PATH /fs/microsd/etc/mixers
 
 #
 # If mount (gimbal) control is enabled and output mode is AUX, set the aux
 # mixer to mount (override the airframe-specific MIXER_AUX setting).
 #
-if param compare MNT_MODE_IN -1
+if ! param compare MNT_MODE_IN -1
 then
-else
         if param compare MNT_MODE_OUT 0
         then
                 set MIXER_AUX mount
         fi
 fi
 
-if ver hwcmp AEROFC_V1 AV_X_V1 CRAZYFLIE MINDPX_V2 NXPHLITE_V3 PX4FMU_V4 OMNIBUS_F4SD
+if ver hwcmp AEROFC_V1 AV_X_V1 CRAZYFLIE MINDPX_V2 NXPHLITE_V3 PX4FMU_V4 OMNIBUS_F4SD SITL
 then
 	set MIXER_AUX none
 fi
@@ -69,19 +67,17 @@ then
 			set MKBLCTRL_ARG "-mkmode +"
 		fi
 
-		if mkblctrl $MKBLCTRL_ARG
+		if ! mkblctrl $MKBLCTRL_ARG
 		then
-		else
 			# Error tune.
 			tune_control play -t 2
 		fi
 	fi
 
-	if [ $OUTPUT_MODE == hil ]
+	if [ $OUTPUT_MODE == hil -o $OUTPUT_MODE == sim ]
 	then
-		if pwm_out_sim start
+		if ! pwm_out_sim start
 		then
-		else
 			# Error tune.
 			tune_control play -t 2
 		fi
@@ -89,9 +85,8 @@ then
 
 	if [ $OUTPUT_MODE == fmu ]
 	then
-		if fmu mode_$FMU_MODE $FMU_ARGS
+		if ! fmu mode_$FMU_MODE $FMU_ARGS
 		then
-		else
 			echo "FMU start failed" >> $LOG_FILE
 			# Error tune.
 			tune_control play -t 2
@@ -112,24 +107,13 @@ then
 	fi
 
 	#
-	# Start IO or FMU for RC PPM input if needed.
+	# Start IO for RC input if needed.
 	#
 	if [ $IO_PRESENT == yes ]
 	then
 		if [ $OUTPUT_MODE != io ]
 		then
 			sh /etc/init.d/rc.io
-		fi
-	else
-		if [ $OUTPUT_MODE != fmu ]
-		then
-			if fmu mode_${FMU_MODE} $FMU_ARGS
-			then
-			else
-				echo "FMU mode_${FMU_MODE} start failed" >> $LOG_FILE
-				# Error tune.
-				tune_control play -t 2
-			fi
 		fi
 	fi
 fi
@@ -144,17 +128,20 @@ then
 		set MIXER_AUX ${MIXER}
 	fi
 
-	if [ -f ${SDCARD_MIXERS_PATH}/${MIXER}.main.mix ]
+	if [ "$MIXER_FILE" == none ]
 	then
-		# Use the mixer file from the SD-card if it exists.
-		set MIXER_FILE ${SDCARD_MIXERS_PATH}/${MIXER}.main.mix
-	else
-		# Try out the old convention, for backward compatibility.
-		if [ -f ${SDCARD_MIXERS_PATH}/${MIXER}.mix ]
+		if [ -f ${SDCARD_MIXERS_PATH}/${MIXER}.main.mix ]
 		then
-			set MIXER_FILE ${SDCARD_MIXERS_PATH}/${MIXER}.mix
+			# Use the mixer file from the SD-card if it exists.
+			set MIXER_FILE ${SDCARD_MIXERS_PATH}/${MIXER}.main.mix
 		else
-			set MIXER_FILE /etc/mixers/${MIXER}.main.mix
+			# Try out the old convention, for backward compatibility.
+			if [ -f ${SDCARD_MIXERS_PATH}/${MIXER}.mix ]
+			then
+				set MIXER_FILE ${SDCARD_MIXERS_PATH}/${MIXER}.mix
+			else
+				set MIXER_FILE /etc/mixers/${MIXER}.main.mix
+			fi
 		fi
 	fi
 
@@ -184,7 +171,6 @@ then
 		tone_alarm ${TUNE_ERR}
 	fi
 
-	unset MIXER_FILE
 else
 	if [ $MIXER != skip ]
 	then
@@ -328,4 +314,3 @@ fi
 
 unset MIXER_AUX_FILE
 unset OUTPUT_AUX_DEV
-unset SDCARD_MIXERS_PATH

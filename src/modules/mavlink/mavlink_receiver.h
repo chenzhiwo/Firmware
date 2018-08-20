@@ -222,14 +222,14 @@ private:
 	orb_advert_t _flow_distance_sensor_pub;
 	orb_advert_t _distance_sensor_pub;
 	orb_advert_t _offboard_control_mode_pub;
-	orb_advert_t _actuator_controls_pub;
+	orb_advert_t _actuator_controls_pubs[4];
 	orb_advert_t _att_sp_pub;
 	orb_advert_t _rates_sp_pub;
 	orb_advert_t _pos_sp_triplet_pub;
 	orb_advert_t _att_pos_mocap_pub;
 	orb_advert_t _vision_position_pub;
 	orb_advert_t _vision_attitude_pub;
-	orb_advert_t _telemetry_status_pub;
+	orb_advert_t _radio_status_pub;
 	orb_advert_t _ping_pub;
 	orb_advert_t _rc_pub;
 	orb_advert_t _manual_pub;
