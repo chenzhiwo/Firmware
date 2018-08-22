@@ -37,6 +37,7 @@ px4_add_module(
 	STACK_MAIN 1024
 	SRCS
 		ranger_hub.cpp
+		params.c
 	DEPENDS
 		modules__uORB
 		platforms__common

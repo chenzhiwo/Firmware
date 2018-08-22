@@ -40,18 +40,21 @@
 #include <px4_module.h>
 #include <px4_module_params.h>
 
+#include <matrix/math.hpp>
+
 #include <drivers/drv_hrt.h>
+#include <tunes/tune_definition.h>
 
 #include <uORB/uORB.h>
+#include <uORB/topics/parameter_update.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_trajectory_waypoint.h>
-#include <matrix/math.hpp>
+#include <uORB/topics/tune_control.h>
+#include <uORB/topics/debug_key_value.h>
 
 #include "ranger_hub.h"
 
-#define BAUD_RATE B115200
-
-#define SAFE_RANGE 2.0f
+#define BAUD_RATE B57600
 
 static const uint8_t CRC8_TABLE[] = {
         0x00, 0x07, 0x0e, 0x09, 0x1c, 0x1b, 0x12, 0x15, 0x38, 0x3f, 0x36, 0x31,
@@ -91,7 +94,8 @@ static uint8_t crc8(const uint8_t *data, uint8_t len)
     return reg & 0xff;
 }
 
-class RangerHub : public ModuleBase<RangerHub>, public ModuleParams{
+class RangerHub : public ModuleBase<RangerHub>, public ModuleParams
+{
 public:
     RangerHub(const char * serial_port)
     : ModuleParams(nullptr),
@@ -158,18 +162,28 @@ public:
     void run() override
     {
         bool updated;
-        float min_range;
+        float min_dist;
         enum RangerDirections direction;
         float avoid_direction;
         matrix::Vector3f avoid_dist;
+
+        struct debug_key_value_s dbg;
+        strcpy(dbg.key, "min_dist");
+        orb_advert_t dbg_pub = {};
 
         if(!_open_serial())
         {
             return;
         }
 
+        dbg_pub = orb_advertise(ORB_ID(debug_key_value), &dbg);
+
+        _parameter_update_sub = orb_subscribe(ORB_ID(parameter_update));
         _trajectory_waypoint_pub = orb_advertise(ORB_ID(vehicle_trajectory_waypoint), &_trajectory_waypoint);
+        _tune_control_pub = orb_advertise(ORB_ID(tune_control), &_tune_control);
         _local_position_sub = orb_subscribe(ORB_ID(vehicle_local_position));
+
+        parameters_update(_parameter_update_sub, true);
 
         // Mark vel and acc as unused.
         _trajectory_waypoint.waypoints[vehicle_trajectory_waypoint_s::POINT_0].velocity[0] = NAN;
@@ -188,8 +202,17 @@ public:
         _trajectory_waypoint.waypoints[vehicle_trajectory_waypoint_s::POINT_3].point_valid = false;
         _trajectory_waypoint.waypoints[vehicle_trajectory_waypoint_s::POINT_4].point_valid = false;
 
+        _tune_control.timestamp = hrt_absolute_time();
+        _tune_control.tune_id = static_cast<int>(TuneID::SINGLE_BEEP);
+        _tune_control.strength = tune_control_s::STRENGTH_MAX;
+        _tune_control.tune_override = 0;
+
+        orb_publish(ORB_ID(tune_control), _tune_control_pub, &_tune_control);
+
         while(!should_exit())
         {
+            parameters_update(_parameter_update_sub, false);
+
             // Wait for a new report.
             _read_report();
 
@@ -199,16 +222,16 @@ public:
                 _range[i] = static_cast<float>(_report.distance[i]) / 1000.0f;
             }
 
-            min_range = SAFE_RANGE;
+            min_dist = _safety_dist.get();
             direction = RANGER_NONE;
 
             // Check minimal valid range
             for(int i = RANGER_FRONT; i < RANGER_NONE; i++)
             {
                 // Greater than 0.0 and less than minimal range (SAFE_RANGE).
-                if((FLT_EPSILON < _range[i]) && (_range[i] < min_range))
+                if((FLT_EPSILON < _range[i]) && (_range[i] < min_dist))
                 {
-                    min_range = _range[i];
+                    min_dist = _range[i];
                     direction = (RangerDirections)i;
                 }
             }
@@ -255,7 +278,7 @@ public:
 
             // Transform to NED frame.
             avoid_dist = matrix::Dcmf(matrix::Eulerf(0.0f, 0.0f, _local_position.yaw + avoid_direction))
-                        * matrix::Vector3f(SAFE_RANGE - min_range, 0.0f, 0.0f);
+                        * matrix::Vector3f(2.0f, 0.0f, 0.0f);
 
             _trajectory_waypoint.timestamp = hrt_absolute_time();
 
@@ -267,11 +290,20 @@ public:
 
             _trajectory_waypoint.waypoints[vehicle_trajectory_waypoint_s::POINT_0].yaw = _local_position.yaw;
 
+            _tune_control.timestamp = _trajectory_waypoint.timestamp;
+
             orb_publish(ORB_ID(vehicle_trajectory_waypoint), _trajectory_waypoint_pub, &_trajectory_waypoint);
+
+            orb_publish(ORB_ID(tune_control), _tune_control_pub, &_tune_control);
+
+            dbg.value = min_dist;
+            orb_publish(ORB_ID(debug_key_value), dbg_pub, &dbg);
         }
 
+        orb_unsubscribe(_parameter_update_sub);
         orb_unsubscribe(_local_position_sub);
         orb_unadvertise(_trajectory_waypoint_pub);
+        orb_unadvertise(_tune_control_pub);
 
         _close_serial();
     }
@@ -297,11 +329,34 @@ private:
     int _fd;
     Report _report;
     float _range[8];
+    orb_advert_t _tune_control_pub;
     orb_advert_t _trajectory_waypoint_pub;
     int _local_position_sub;
+    int _parameter_update_sub;
 
     vehicle_trajectory_waypoint_s _trajectory_waypoint;
     struct vehicle_local_position_s _local_position;
+    struct tune_control_s _tune_control;
+
+    DEFINE_PARAMETERS(
+            (ParamFloat<px4::params::SENS_RH_DIST>) _safety_dist
+    )
+
+    void parameters_update(int parameter_update_sub, bool force)
+    {
+        bool updated;
+        struct parameter_update_s param_upd = {};
+
+        orb_check(parameter_update_sub, &updated);
+
+        if (updated) {
+            orb_copy(ORB_ID(parameter_update), parameter_update_sub, &param_upd);
+        }
+
+        if (force || updated) {
+            updateParams();
+        }
+    }
 
     bool _open_serial()
     {
@@ -348,9 +403,9 @@ private:
         // No line processing.
         params.c_lflag = 0;
 
-        // Never timeout.
-        params.c_cc[VMIN] = 1;
-        params.c_cc[VTIME] = 0;
+        // Timeout 0.1s.
+        params.c_cc[VMIN] = 0;
+        params.c_cc[VTIME] = 1;
 
         // Set baud rate.
         cfsetispeed(&params, BAUD_RATE);
@@ -386,22 +441,15 @@ private:
         for(;;) {
             // Check start sign.
             size = ::read(_fd, &_report.T, sizeof(_report.T));
-            if((_report.T != 'T') || (size == -1))
+            if((size == 0) || (_report.T != 'T'))
             {
                 continue;
             }
 
-            size = ::read(_fd, &_report.H, sizeof(_report.H));
-            if((_report.H != 'H') || (size == -1))
+            size = 0;
+            while(size < static_cast<ssize_t>(sizeof(_report) - sizeof(_report.T)))
             {
-                continue;
-            }
-
-            // Read values.
-            size = ::read(_fd, &_report.distance, sizeof(_report.distance) + sizeof(_report.crc));
-            if(size == -1)
-            {
-                continue;
+                size += ::read(_fd, (uint8_t *)&_report.H + size, sizeof(_report) - sizeof(_report.T) - size);
             }
 
             // Check CRC
