@@ -34,7 +34,7 @@
 px4_add_module(
 	MODULE drivers__ranger_hub
 	MAIN ranger_hub
-	STACK_MAIN 1024
+	STACK_MAIN 1536
 	SRCS
 		ranger_hub.cpp
 		params.c

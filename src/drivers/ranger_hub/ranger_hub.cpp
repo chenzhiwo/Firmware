@@ -111,7 +111,7 @@ public:
         _task_id = px4_task_spawn_cmd("ranger_hub",
                                       SCHED_DEFAULT,
                                       SCHED_PRIORITY_DEFAULT,
-                                      1024,
+                                      1536,
                                       (px4_main_t)&run_trampoline,
                                       (char *const *)argv);
 
@@ -292,10 +292,11 @@ public:
 
             _tune_control.timestamp = _trajectory_waypoint.timestamp;
 
-            orb_publish(ORB_ID(vehicle_trajectory_waypoint), _trajectory_waypoint_pub, &_trajectory_waypoint);
+//            orb_publish(ORB_ID(vehicle_trajectory_waypoint), _trajectory_waypoint_pub, &_trajectory_waypoint);
 
             orb_publish(ORB_ID(tune_control), _tune_control_pub, &_tune_control);
 
+            dbg.timestamp = _trajectory_waypoint.timestamp;
             dbg.value = min_dist;
             orb_publish(ORB_ID(debug_key_value), dbg_pub, &dbg);
         }
